@@ -1,0 +1,391 @@
+{% extends 'base.html' %}
+
+{% block title %}监控仪表板 - 博客系统{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <h1 class="mb-4">📊 监控仪表板</h1>
+    </div>
+</div>
+
+<!-- 当前状态概览 -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card dashboard-card text-center">
+            <div class="card-body">
+                <h5 class="text-primary">{{ current_hit_rate.hit_rate }}%</h5>
+                <p class="card-text">当前缓存命中率</p>
+                <small class="text-muted">{{ current_hit_rate.hour }}:00 - {{ current_hit_rate.hour|add:1 }}:00</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card dashboard-card text-center">
+            <div class="card-body">
+                <h5 class="text-success">{{ current_hit_rate.total_requests }}</h5>
+                <p class="card-text">总请求数</p>
+                <small class="text-muted">当前小时</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card dashboard-card text-center">
+            <div class="card-body">
+                <h5 class="text-info">{{ current_hit_rate.cache_hits }}</h5>
+                <p class="card-text">缓存命中数</p>
+                <small class="text-muted">当前小时</small>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card dashboard-card text-center">
+            <div class="card-body">
+                <h5 class="text-warning">{{ daily_cache_stats.daily_hit_rate }}%</h5>
+                <p class="card-text">今日平均命中率</p>
+                <small class="text-muted">24小时平均</small>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 图表和详细统计 -->
+<div class="row">
+    <!-- 缓存命中率趋势图 -->
+    <div class="col-lg-8">
+        <div class="card dashboard-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="bi bi-graph-up"></i> 今日缓存命中率趋势</h5>
+                <div class="btn-group btn-group-sm" role="group">
+                    <button type="button" class="btn btn-outline-primary" onclick="refreshChart()">
+                        <i class="bi bi-arrow-clockwise"></i> 刷新
+                    </button>
+                    <button type="button" class="btn btn-outline-secondary" onclick="exportData()">
+                        <i class="bi bi-download"></i> 导出
+                    </button>
+                </div>
+            </div>
+            <div class="card-body">
+                <canvas id="hitRateChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- 热门文章排行 -->
+    <div class="col-lg-4">
+        <div class="card dashboard-card">
+            <div class="card-header">
+                <h5><i class="bi bi-fire"></i> 热门文章 TOP 5</h5>
+            </div>
+            <div class="card-body">
+                {% if popular_articles %}
+                    {% for article in popular_articles %}
+                    <div class="d-flex justify-content-between align-items-center py-2 {% if not forloop.last %}border-bottom{% endif %}">
+                        <div>
+                            <h6 class="mb-1">
+                                <a href="{% url 'blog:article_detail' article.id %}" class="text-decoration-none">
+                                    {{ article.title|truncatechars:25 }}
+                                </a>
+                            </h6>
+                            <small class="text-muted">{{ article.author }}</small>
+                        </div>
+                        <div class="text-end">
+                            <div class="fw-bold text-primary">{{ article.reading_stats.total_views }}</div>
+                            <small class="text-muted">阅读量</small>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="text-center text-muted py-4">
+                        <i class="bi bi-inbox" style="font-size: 2rem;"></i>
+                        <p class="mt-2">暂无数据</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 详细统计表格 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card dashboard-card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5><i class="bi bi-table"></i> 今日详细统计</h5>
+                <button class="btn btn-outline-primary btn-sm" onclick="syncCacheStats()">
+                    <i class="bi bi-cloud-upload"></i> 同步到数据库
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead class="table-light">
+                            <tr>
+                                <th>时间段</th>
+                                <th>总请求</th>
+                                <th>缓存命中</th>
+                                <th>命中率</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="hourly-stats-table">
+                            {% for hour_stat in daily_cache_stats.hourly_stats %}
+                            <tr>
+                                <td>{{ hour_stat.hour|stringformat:"02d" }}:00 - {{ hour_stat.hour|add:1|stringformat:"02d" }}:00</td>
+                                <td>{{ hour_stat.total_requests }}</td>
+                                <td>{{ hour_stat.cache_hits }}</td>
+                                <td>
+                                    <span class="badge {% if hour_stat.hit_rate >= 80 %}bg-success{% elif hour_stat.hit_rate >= 60 %}bg-warning{% else %}bg-danger{% endif %}">
+                                        {{ hour_stat.hit_rate }}%
+                                    </span>
+                                </td>
+                                <td>
+                                    {% if hour_stat.total_requests > 0 %}
+                                        <i class="bi bi-check-circle text-success"></i> 正常
+                                    {% else %}
+                                        <i class="bi bi-dash-circle text-muted"></i> 无数据
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- API接口说明 -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="bi bi-code-square"></i> 监控 API 接口</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <h6>实时监控</h6>
+                        <ul class="list-unstyled">
+                            <li><code>GET /api/cache-monitor/</code> - 当前命中率</li>
+                            <li><code>GET /api/cache-monitor/?type=daily</code> - 今日统计</li>
+                            <li><code>POST /api/sync-cache-stats/</code> - 同步统计</li>
+                        </ul>
+                    </div>
+                    <div class="col-md-6">
+                        <h6>文章统计</h6>
+                        <ul class="list-unstyled">
+                            <li><code>GET /api/article/{id}/stats/</code> - 文章统计</li>
+                            <li><code>GET /api/article/{id}/user-stats/</code> - 用户统计</li>
+                            <li><code>GET /dashboard/?format=json</code> - 仪表板数据</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 图表实例
+    let hitRateChart;
+    
+    // 初始化页面
+    document.addEventListener('DOMContentLoaded', function() {
+        initializeChart();
+    });
+    
+    // 初始化图表
+    function initializeChart() {
+        const ctx = document.getElementById('hitRateChart').getContext('2d');
+        const hourlyStats = {{ daily_cache_stats.hourly_stats|safe }};
+        
+        const labels = hourlyStats.map(stat => stat.hour + ':00');
+        const hitRateData = hourlyStats.map(stat => stat.hit_rate);
+        const requestData = hourlyStats.map(stat => stat.total_requests);
+        
+        hitRateChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [
+                    {
+                        label: '命中率 (%)',
+                        data: hitRateData,
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.4,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: '请求数',
+                        data: requestData,
+                        borderColor: 'rgb(255, 99, 132)',
+                        backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                scales: {
+                    x: {
+                        display: true,
+                        title: {
+                            display: true,
+                            text: '时间'
+                        }
+                    },
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: {
+                            display: true,
+                            text: '命中率 (%)'
+                        },
+                        min: 0,
+                        max: 100
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        title: {
+                            display: true,
+                            text: '请求数'
+                        },
+                        grid: {
+                            drawOnChartArea: false,
+                        },
+                    }
+                }
+            }
+        });
+    }
+    
+    // 刷新图表数据
+    function refreshChart() {
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 刷新中...';
+        
+        fetch('/api/cache-monitor/?type=daily')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateChartData(data.data.hourly_stats);
+                    updateStatsTable(data.data.hourly_stats);
+                    showToast('数据已更新', 'success');
+                } else {
+                    showToast('更新失败: ' + data.error_message, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showToast('网络错误，请稍后重试', 'danger');
+            })
+            .finally(() => {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            });
+    }
+    
+    // 更新图表数据
+    function updateChartData(hourlyStats) {
+        if (hitRateChart) {
+            const labels = hourlyStats.map(stat => stat.hour + ':00');
+            const hitRateData = hourlyStats.map(stat => stat.hit_rate);
+            const requestData = hourlyStats.map(stat => stat.total_requests);
+            
+            hitRateChart.data.labels = labels;
+            hitRateChart.data.datasets[0].data = hitRateData;
+            hitRateChart.data.datasets[1].data = requestData;
+            hitRateChart.update();
+        }
+    }
+    
+    // 更新统计表格
+    function updateStatsTable(hourlyStats) {
+        const tbody = document.getElementById('hourly-stats-table');
+        tbody.innerHTML = '';
+        
+        hourlyStats.forEach(stat => {
+            const badgeClass = stat.hit_rate >= 80 ? 'bg-success' : 
+                             stat.hit_rate >= 60 ? 'bg-warning' : 'bg-danger';
+            
+            const statusIcon = stat.total_requests > 0 ? 
+                '<i class="bi bi-check-circle text-success"></i> 正常' :
+                '<i class="bi bi-dash-circle text-muted"></i> 无数据';
+            
+            const row = `
+                <tr>
+                    <td>${stat.hour.toString().padStart(2, '0')}:00 - ${(stat.hour + 1).toString().padStart(2, '0')}:00</td>
+                    <td>${stat.total_requests}</td>
+                    <td>${stat.cache_hits}</td>
+                    <td><span class="badge ${badgeClass}">${stat.hit_rate}%</span></td>
+                    <td>${statusIcon}</td>
+                </tr>
+            `;
+            tbody.insertAdjacentHTML('beforeend', row);
+        });
+    }
+    
+    // 同步缓存统计到数据库
+    function syncCacheStats() {
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 同步中...';
+        
+        fetch('/api/sync-cache-stats/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('缓存统计已同步到数据库', 'success');
+            } else {
+                showToast('同步失败: ' + data.error_message, 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showToast('网络错误，请稍后重试', 'danger');
+        })
+        .finally(() => {
+            button.disabled = false;
+            button.innerHTML = originalText;
+        });
+    }
+    
+    // 导出数据
+    function exportData() {
+        const data = {{ daily_cache_stats|safe }};
+        const dataStr = JSON.stringify(data, null, 2);
+        const dataBlob = new Blob([dataStr], {type: 'application/json'});
+        
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(dataBlob);
+        link.download = `cache_stats_${new Date().toISOString().split('T')[0]}.json`;
+        link.click();
+        
+        showToast('数据已导出', 'success');
+    }
+    
+    // 定期刷新数据（每5分钟）
+    setInterval(refreshChart, 5 * 60 * 1000);
+</script>
+{% endblock %} 

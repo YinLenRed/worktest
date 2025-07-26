@@ -1,0 +1,201 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ article.title }} - 博客系统{% endblock %}
+
+{% block content %}
+<div class="row">
+    <!-- 主要内容区域 -->
+    <div class="col-lg-8">
+        <!-- 文章标题和元信息 -->
+        <div class="mb-4">
+            <h1 class="display-6">{{ article.title }}</h1>
+            <div class="text-muted mb-3">
+                <i class="bi bi-person"></i> {{ article.author }} 
+                &nbsp;&nbsp;
+                <i class="bi bi-calendar"></i> {{ article.created_at|date:"Y年m月d日 H:i" }}
+                &nbsp;&nbsp;
+                <i class="bi bi-clock"></i> 更新于 {{ article.updated_at|date:"m月d日 H:i" }}
+            </div>
+        </div>
+
+        <!-- 文章内容 -->
+        <div class="article-content">
+            {{ article.content|linebreaks }}
+        </div>
+
+        <!-- 操作按钮 -->
+        <div class="mt-4 pt-3 border-top">
+            <a href="{% url 'blog:article_list' %}" class="btn btn-secondary">
+                <i class="bi bi-arrow-left"></i> 返回列表
+            </a>
+            <button class="btn btn-primary" onclick="refreshStats()">
+                <i class="bi bi-arrow-clockwise"></i> 刷新统计
+            </button>
+        </div>
+    </div>
+
+    <!-- 侧边栏统计信息 -->
+    <div class="col-lg-4">
+        <!-- 阅读统计卡片 -->
+        <div class="card dashboard-card mb-4">
+            <div class="card-header">
+                <h5><i class="bi bi-bar-chart"></i> 阅读统计</h5>
+                <span id="cache-status" class="cache-status {{ cache_status|yesno:'cache-hit,cache-miss' }}">
+                    {{ cache_status|yesno:'缓存命中,缓存未命中' }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="reading-stats" id="reading-stats-container">
+                    <div class="row text-center">
+                        <div class="col-12 mb-3">
+                            <div class="stat-number display-6" id="total-views">{{ reading_stats.total_views|default:0 }}</div>
+                            <h6>总阅读次数</h6>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-number h3" id="unique-users">{{ reading_stats.unique_users|default:0 }}</div>
+                            <small>独立用户</small>
+                        </div>
+                        <div class="col-6">
+                            <div class="stat-number h3" id="unique-ips">{{ reading_stats.unique_ips|default:0 }}</div>
+                            <small>独立IP</small>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 错误信息显示 -->
+                {% if reading_stats.error %}
+                <div class="alert alert-warning mt-3">
+                    <i class="bi bi-exclamation-triangle"></i> {{ reading_stats.error }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- 当前用户阅读统计（仅登录用户） -->
+        {% if user.is_authenticated %}
+        <div class="card dashboard-card mb-4">
+            <div class="card-header">
+                <h6><i class="bi bi-person-check"></i> 我的阅读记录</h6>
+            </div>
+            <div class="card-body">
+                <div id="user-stats-container">
+                    <div class="text-center">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">加载中...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- API 接口信息 -->
+        <div class="card dashboard-card">
+            <div class="card-header">
+                <h6><i class="bi bi-code"></i> API 接口</h6>
+            </div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <a href="{% url 'blog:article_stats_api' article.id %}?format=json" 
+                       class="btn btn-sm btn-outline-primary w-100" target="_blank">
+                        查看统计 API
+                    </a>
+                </div>
+                {% if user.is_authenticated %}
+                <div class="mb-2">
+                    <a href="{% url 'blog:user_reading_stats_api' article.id %}?format=json" 
+                       class="btn btn-sm btn-outline-secondary w-100" target="_blank">
+                        用户统计 API
+                    </a>
+                </div>
+                {% endif %}
+                <small class="text-muted">
+                    支持JSON格式输出，可用于前端应用集成
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // 刷新统计数据
+    function refreshStats() {
+        const button = event.target;
+        const originalText = button.innerHTML;
+        button.disabled = true;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm"></span> 刷新中...';
+        
+        fetch('{% url "blog:article_stats_api" article.id %}')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateStatsDisplay(data.data);
+                    showToast('统计数据已更新', 'success');
+                } else {
+                    showToast('更新失败: ' + data.error_message, 'danger');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showToast('网络错误，请稍后重试', 'danger');
+            })
+            .finally(() => {
+                button.disabled = false;
+                button.innerHTML = originalText;
+            });
+    }
+    
+    // 更新统计显示
+    function updateStatsDisplay(stats) {
+        document.getElementById('total-views').textContent = formatNumber(stats.total_views || 0);
+        document.getElementById('unique-users').textContent = formatNumber(stats.unique_users || 0);
+        document.getElementById('unique-ips').textContent = formatNumber(stats.unique_ips || 0);
+    }
+    
+    // 加载用户统计（仅登录用户）
+    {% if user.is_authenticated %}
+    function loadUserStats() {
+        fetch('{% url "blog:user_reading_stats_api" article.id %}')
+            .then(response => response.json())
+            .then(data => {
+                const container = document.getElementById('user-stats-container');
+                if (data.success) {
+                    const stats = data.data;
+                    container.innerHTML = `
+                        <div class="text-center">
+                            <div class="h4 text-primary">${stats.read_count}</div>
+                            <small>我的阅读次数</small>
+                            ${stats.first_read_at ? 
+                                `<div class="mt-2"><small class="text-muted">首次阅读: ${formatDate(stats.first_read_at)}</small></div>` : 
+                                ''
+                            }
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = `
+                        <div class="text-center text-muted">
+                            <small>无法加载用户统计</small>
+                        </div>
+                    `;
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                document.getElementById('user-stats-container').innerHTML = `
+                    <div class="text-center text-muted">
+                        <small>加载失败</small>
+                    </div>
+                `;
+            });
+    }
+    
+    // 页面加载后获取用户统计
+    document.addEventListener('DOMContentLoaded', loadUserStats);
+    {% endif %}
+    
+    // 定期更新统计数据（可选）
+    // setInterval(refreshStats, 30000); // 每30秒更新一次
+</script>
+{% endblock %} 
